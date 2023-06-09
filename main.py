@@ -30,7 +30,7 @@ def lyrics(update, context):
 
 def main():
     # Create the Updater and pass in the bot token
-    updater = Updater("YOUR_BOT_TOKEN_HERE", use_context=True)
+    updater = Updater("5862606792:AAGyo32A-oCmYBNoH4GHndcyvHyz-ghzWhQ", use_context=True)
 
     # Get the dispatcher to register handlers
     dp = updater.dispatcher
