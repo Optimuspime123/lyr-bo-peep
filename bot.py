@@ -1,98 +1,149 @@
 #!/usr/bin/env python3
+import telegram
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
 import requests
-from telegram.ext import Updater, CommandHandler
 
+# Define your Telegram Bot token
+TOKEN = '5862606792:AAGyo32A-oCmYBNoH4GHndcyvHyz-ghzWhQ'
+
+# Define the API endpoint URL
+API_URL = 'https://lrclib.net/api/'
+
+# Function to handle the /start command
 def start(update, context):
-    # Send a start message to the user
-    user_id = update.effective_user.id
-    print(f"User {user_id} farted")
-    start_message = "Welcome! This bot can provide lyrics and synced lyrics for songs. Use the /lyrics command to get the plain lyrics or the /synced command to get synced lyrics."
-    context.bot.send_message(chat_id=update.effective_chat.id, text=start_message)
+    update.message.reply_text('Welcome to the music search bot! Send /search followed by the name of the song and/or artist .')
 
-def lyrics(update, context):
-    # Get the command from the user's message
-    command = update.message.text.split()[0]
+# Function to handle the /search command
+def search(update, context):
+    if not context.args:
+        update.message.reply_text('Please provide a search query. ')
+        return
 
-    if command == '/lyrics':
-        # Handle the /lyrics command
-        song_name = ' '.join(update.message.text.split()[1:])
-        # Search for the song on your API
-        search_url = f"https://lrclib.net/api/search?q={song_name}"
-        search_response = requests.get(search_url)
+    query = ' '.join(context.args)  # Get the search query from the user
+    url = API_URL + 'search?q=' + query
 
-        # If the song was found, get the lyrics and send them to the user
-        if search_response.status_code == 200:
-            songs = search_response.json()
-            if len(songs) > 0:
-                song_id = songs[0]['id']
-                lyrics_url = f"https://lrclib.net/api/get/{song_id}"
-                lyrics_response = requests.get(lyrics_url)
-                if lyrics_response.status_code == 200:
-                    lyrics = lyrics_response.json()['plainLyrics']
+    try:
+        # Make a GET request to the API and retrieve the first 5 results
+        response = requests.get(url)
+        response.raise_for_status()  # Check for any HTTP errors
+        songs = response.json()[:8]
 
-                    if lyrics:
-                        context.bot.send_message(chat_id=update.effective_chat.id, text=lyrics)
-                    else:
-                        context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, lyrics are not available for this song.It could be instrumental or very new.")
-                    
-                else:
-                    context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I couldn't find the lyrics for that song.")
+        if not songs:
+            update.message.reply_text('No songs found.')
+            return
+
+        # Create a list of InlineKeyboardButtons for each song
+        keyboard = []
+        for song in songs:
+            button = InlineKeyboardButton(
+                f'{song["name"]} - {song["artistName"]}',
+                callback_data=str(song["id"])
+            )
+            keyboard.append([button])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text('Please choose a song:', reply_markup=reply_markup)
+
+    except requests.exceptions.RequestException:
+        update.message.reply_text('An error occurred while connecting to the API.')
+
+# Function to handle the button presses
+def button(update, context):
+    query = update.callback_query
+    song_id = query.data
+
+    # Check if the button pressed is for synced lyrics
+    if song_id == 'synced':
+        # Get the selected song ID from the context
+        song_id = context.user_data.get('song_id')
+
+        if not song_id:
+            query.message.reply_text('No song ID found. Please select a song first.')
+            return
+
+        try:
+            # Get the synced lyrics using the song ID
+            url = API_URL + 'get/' + song_id
+            response = requests.get(url)
+            response.raise_for_status()  # Check for any HTTP errors
+            song_details = response.json()
+
+            synced_lyrics = song_details.get('syncedLyrics')
+            if not synced_lyrics:
+                query.message.reply_text('No synced lyrics found for this song.')
             else:
-                context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I couldn't find the lyrics for that song.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I couldn't find the lyrics for that song.")
-    elif command == '/synced':
-        # Handle the /synced command
-        song_name = ' '.join(update.message.text.split()[1:])
-        # Search for the song on your API
-        search_url = f"https://lrclib.net/api/search?q={song_name}"
-        search_response = requests.get(search_url)
+                query.message.reply_text(synced_lyrics)
 
-        # If the song was found, get the synced lyrics and send them to the user
-        if search_response.status_code == 200:
-            songs = search_response.json()
-            if len(songs) > 0:
-                song_id = songs[0]['id']
-                lyrics_url = f"https://lrclib.net/api/get/{song_id}"
-                lyrics_response = requests.get(lyrics_url)
-                if lyrics_response.status_code == 200:
-                    synced_lyrics = lyrics_response.json()['syncedLyrics']
-                    if synced_lyrics:
-                        context.bot.send_message(chat_id=update.effective_chat.id, text=synced_lyrics)
-                    else:
-                        context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, synced lyrics are not available for this song. Please try /lyrics instead.")
-                    
-                else:
-                    context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I couldn't find the synced lyrics for that song.")
+        except requests.exceptions.RequestException:
+            query.message.reply_text('An error occurred while connecting to the API.')
+
+    elif song_id == 'plain':
+        # Get the selected song ID from the context
+        song_id = context.user_data.get('song_id')
+
+        if not song_id:
+            query.message.reply_text('No song ID found. Please select a song first.')
+            return
+
+        try:
+            # Get the plain lyrics using the song ID
+            url = API_URL + 'get/' + song_id
+            response = requests.get(url)
+            response.raise_for_status()  # Check for any HTTP errors
+            song_details = response.json()
+
+            plain_lyrics = song_details.get('plainLyrics')
+            if not plain_lyrics:
+                query.message.reply_text('No plain lyrics found for this song.')
             else:
-                context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I couldn't find the synced lyrics for that song.")
-        else:
-            context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, I couldn't find the synced lyrics for that song.")
+                query.message.reply_text(plain_lyrics)
+
+        except requests.exceptions.RequestException:
+            query.message.reply_text('An error occurred while connecting to the API.')
+
     else:
-        # Handle unknown commands
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Unknown command.")
+        # The button press is for selecting a song
+        context.user_data['song_id'] = song_id
 
+        try:
+            # Get the song details using the song ID
+            url = API_URL + 'get/' + song_id
+            response = requests.get(url)
+            response.raise_for_status()  # Check for any HTTP errors
+            song_details = response.json()
 
-def main():
-    # Create the Updater and pass in the bot token
-    updater = Updater("5862606792:AAGyo32A-oCmYBNoH4GHndcyvHyz-ghzWhQ")
+            # Extract the required information from the song_details
+            name = song_details.get('name')
+            artist = song_details.get('artistName')
+            spotify_id = song_details.get('spotifyId', '')
 
-    # Get the dispatcher to register handlers
-    dp = updater.dispatcher
+            # Create a list of InlineKeyboardButtons for the song actions
+            keyboard = [
+                [InlineKeyboardButton('Synced Lyrics', callback_data='synced')],
+                [InlineKeyboardButton('Plain Lyrics', callback_data='plain')],
+                [InlineKeyboardButton('Open on Spotify', url=f'https://open.spotify.com/track/{spotify_id}')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Add the command handler for the /lyrics command
-    dp.add_handler(CommandHandler("lyrics", lyrics))
+            # Send the song information and actions to the user
+            query.message.reply_text(f'Song: {name}\nArtist: {artist}', reply_markup=reply_markup)
 
-    # Add the command handler for the /synced command
-    dp.add_handler(CommandHandler("synced", lyrics))
+        except requests.exceptions.RequestException:
+            query.message.reply_text('An error occurred while connecting to the API.')
 
-    dp.add_handler(CommandHandler("start", start))
+# Create an instance of the Updater and pass your bot's token
+updater = Updater(TOKEN, use_context=True)
 
-    # Start the bot
-    updater.start_polling()
+# Get the dispatcher to register handlers
+dispatcher = updater.dispatcher
 
-    # Run the bot until you press Ctrl-C or the process is stopped
-    updater.idle()
+# Register command handlers
+dispatcher.add_handler(CommandHandler('start', start))
+dispatcher.add_handler(CommandHandler('search', search))
+dispatcher.add_handler(CallbackQueryHandler(button))
 
-if __name__ == '__main__':
-    main()
+# Start the bot
+updater.start_polling()
+updater.idle()
+
